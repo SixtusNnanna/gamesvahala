@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 
 export const LoginPage: React.FC = () => {
-  const { login, setupAdmin, needsInitialSetup } = useApp();
+  const { login } = useApp();
 
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -15,16 +15,9 @@ export const LoginPage: React.FC = () => {
     setLoading(true);
 
     try {
-      if (needsInitialSetup) {
-        const res = await setupAdmin(username, password);
-        if (!res.success) {
-          setError(res.error || 'Failed to setup administrator account.');
-        }
-      } else {
-        const res = await login(username, password);
-        if (!res.success) {
-          setError(res.error || 'Invalid username or password.');
-        }
+      const res = await login(username, password);
+      if (!res.success) {
+        setError(res.error || 'Invalid username or password.');
       }
     } finally {
       setLoading(false);
@@ -53,16 +46,14 @@ export const LoginPage: React.FC = () => {
         </div>
       </aside>
 
-      {/* Main Login / Setup Panel */}
+      {/* Main Login Panel */}
       <main className="flex-1 flex flex-col items-center justify-center p-6 md:p-10">
         <section className="w-full max-w-[500px] p-8 md:p-11 border border-white/80 rounded-[18px] bg-white/90 shadow-[0_20px_60px_rgba(22,48,65,0.09)] backdrop-blur-sm">
           <h1 className="text-2xl md:text-3xl font-bold text-center tracking-tight mb-2 text-[#172b38]">
-            {needsInitialSetup ? 'Initialize System Admin' : 'Welcome Back'}
+            Welcome Back
           </h1>
           <p className="text-[#71869a] text-center text-sm mb-7 leading-relaxed">
-            {needsInitialSetup
-              ? 'Create the primary administrator account for Valhala Games.'
-              : 'Sign in to access the Valhala Games terminal.'}
+            Sign in to access the Valhala Games terminal.
           </p>
 
           {error && (
@@ -83,7 +74,7 @@ export const LoginPage: React.FC = () => {
                 type="text"
                 id="username"
                 name="username"
-                placeholder={needsInitialSetup ? 'Choose admin username' : 'Enter your username'}
+                placeholder="Enter your username"
                 autoComplete="username"
                 value={username}
                 onChange={e => setUsername(e.target.value)}
@@ -100,8 +91,8 @@ export const LoginPage: React.FC = () => {
                 type="password"
                 id="password"
                 name="password"
-                placeholder={needsInitialSetup ? 'Set secure password (min 4 chars)' : 'Enter your password'}
-                autoComplete={needsInitialSetup ? 'new-password' : 'current-password'}
+                placeholder="Enter your password"
+                autoComplete="current-password"
                 value={password}
                 onChange={e => setPassword(e.target.value)}
                 required
@@ -114,11 +105,7 @@ export const LoginPage: React.FC = () => {
               disabled={loading}
               className="w-full py-4 px-6 border-none rounded-[9px] bg-gradient-to-r from-[#0b514b] to-[#13796d] text-white font-bold text-sm cursor-pointer hover:-translate-y-0.5 hover:opacity-95 transition-all shadow-md disabled:opacity-50"
             >
-              {loading
-                ? 'Processing...'
-                : needsInitialSetup
-                ? 'Create Administrator Account &rarr;'
-                : 'Log In &rarr;'}
+              {loading ? 'Signing in...' : 'Log In \u2192'}
             </button>
           </form>
         </section>

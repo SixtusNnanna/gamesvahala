@@ -6,7 +6,8 @@ import fs from 'node:fs';
 import jwt from 'jsonwebtoken';
 import { getGames, createGame, updateGameStatus } from './src/db/games.ts';
 import { getTransactionsWithTotal, createTransaction } from './src/db/transactions.ts';
-import { authenticateUser, createUser, getStaffUsers, getUserCount, getUserByUsername } from './src/db/users.ts';
+import { authenticateUser, createUser, getStaffUsers, getUserByUsername } from './src/db/users.ts';
+import { initDatabase } from './src/db/initDb.ts';
 
 dotenv.config();
 
@@ -14,6 +15,8 @@ dotenv.config();
 const isLocalDb =
   !process.env.DATABASE_URL &&
   !process.env.MYSQL_URL &&
+  !process.env.MYSQL_PUBLIC_URL &&
+  !process.env.MYSQLHOST &&
   (!process.env.MYSQL_HOST || process.env.MYSQL_HOST === '127.0.0.1' || process.env.MYSQL_HOST === 'localhost');
 
 if (isLocalDb && fs.existsSync('/etc/init.d/mariadb')) {
@@ -64,6 +67,12 @@ const requireAdmin = (req: AuthRequest, res: Response, next: NextFunction) => {
 };
 
 async function startServer() {
+  try {
+    await initDatabase();
+  } catch (err) {
+    console.error('Warning: Database initialization failed on startup:', err);
+  }
+
   const app = express();
   const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
   const isProd = process.env.NODE_ENV === 'production';
@@ -73,45 +82,6 @@ async function startServer() {
   // Health check
   app.get('/api/health', (_req, res) => {
     res.json({ status: 'ok', database: 'MySQL', time: new Date().toISOString() });
-  });
-
-  // Auth: Setup status (checks if first-time administrator account is needed)
-  app.get('/api/auth/setup-status', async (_req, res) => {
-    try {
-      const count = await getUserCount();
-      res.json({ needsInitialAdmin: count === 0, userCount: count });
-    } catch {
-      res.status(500).json({ error: 'Failed to check setup status' });
-    }
-  });
-
-  // Auth: Initial Administrator Setup (only when database has 0 users)
-  app.post('/api/auth/setup-admin', async (req, res) => {
-    try {
-      const count = await getUserCount();
-      if (count > 0) {
-        return res.status(400).json({ error: 'Administrator account already exists. Please log in.' });
-      }
-
-      const { username, password } = req.body;
-      if (!username || !password || password.length < 4) {
-        return res.status(400).json({ error: 'Username and password (min 4 chars) are required.' });
-      }
-
-      const adminUser = await createUser(username, password, 'admin');
-      const token = jwt.sign(
-        { id: String(adminUser.id), username: adminUser.username, role: 'admin' },
-        JWT_SECRET,
-        { expiresIn: '7d' }
-      );
-
-      res.status(201).json({
-        user: { id: String(adminUser.id), username: adminUser.username, role: 'admin' },
-        token,
-      });
-    } catch (error: any) {
-      res.status(500).json({ error: error.message || 'Failed to setup administrator account' });
-    }
   });
 
   // Auth: User Login (verifies Argon2 or bcrypt credentials against MySQL)

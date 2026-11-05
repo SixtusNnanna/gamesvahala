@@ -23,10 +23,8 @@ interface AppContextType {
   transactions: Transaction[];
   staffUsers: StaffUser[];
   activePage: 'transaction' | 'history' | 'add_game' | 'signup' | 'login';
-  needsInitialSetup: boolean;
   setActivePage: (page: 'transaction' | 'history' | 'add_game' | 'signup' | 'login') => void;
   login: (username: string, password: string) => Promise<{ success: boolean; error?: string }>;
-  setupAdmin: (username: string, password: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => void;
   signupStaff: (username: string, password: string) => Promise<{ success: boolean; error?: string }>;
   addGame: (name: string, description: string, status: GameStatus) => Promise<{ success: boolean; error?: string }>;
@@ -64,24 +62,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [games, setGames] = useState<Game[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [staffUsers, setStaffUsers] = useState<StaffUser[]>([]);
-  const [needsInitialSetup, setNeedsInitialSetup] = useState<boolean>(false);
 
   const [activePage, setActivePage] = useState<'transaction' | 'history' | 'add_game' | 'signup' | 'login'>(() => {
     return token ? 'transaction' : 'login';
   });
-
-  // Check if initial admin account setup is required in MySQL
-  const checkSetupStatus = useCallback(async () => {
-    try {
-      const res = await fetch('/api/auth/setup-status');
-      if (res.ok) {
-        const data = await res.json();
-        setNeedsInitialSetup(Boolean(data.needsInitialAdmin));
-      }
-    } catch (e) {
-      console.warn('Failed to check MySQL auth setup status:', e);
-    }
-  }, []);
 
   // Fetch games from MySQL
   const refreshGames = useCallback(async () => {
@@ -151,8 +135,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [token, currentUser]);
 
   const refreshData = useCallback(async () => {
-    await Promise.all([refreshGames(), refreshTransactions(), refreshStaff(), checkSetupStatus()]);
-  }, [refreshGames, refreshTransactions, refreshStaff, checkSetupStatus]);
+    await Promise.all([refreshGames(), refreshTransactions(), refreshStaff()]);
+  }, [refreshGames, refreshTransactions, refreshStaff]);
 
   useEffect(() => {
     refreshData();
@@ -173,32 +157,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         .catch(() => {});
     }
   }, [token]);
-
-  // Initial Admin Setup (creates the first administrator account in MySQL)
-  const setupAdmin = async (username: string, password: string) => {
-    try {
-      const res = await fetch('/api/auth/setup-admin', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        return { success: false, error: data.error || 'Failed to setup administrator account' };
-      }
-
-      setToken(data.token);
-      setCurrentUser(data.user);
-      setNeedsInitialSetup(false);
-      localStorage.setItem(TOKEN_KEY, data.token);
-      localStorage.setItem(USER_KEY, JSON.stringify(data.user));
-      setActivePage('transaction');
-      return { success: true };
-    } catch (err: any) {
-      return { success: false, error: err.message || 'Connection to MySQL failed' };
-    }
-  };
 
   // User Login against MySQL
   const login = async (username: string, password: string) => {
@@ -403,10 +361,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         transactions,
         staffUsers,
         activePage,
-        needsInitialSetup,
         setActivePage,
         login,
-        setupAdmin,
         logout,
         signupStaff,
         addGame,

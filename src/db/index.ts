@@ -33,17 +33,18 @@ export const createPool = () => {
         queueLimit: 0,
       });
     } else {
-      const host = process.env.MYSQL_HOST || '127.0.0.1';
+      const host = process.env.MYSQL_HOST || process.env.MYSQLHOST || '127.0.0.1';
+      const portStr = process.env.MYSQL_PORT || process.env.MYSQLPORT;
       const useSsl =
         process.env.MYSQL_SSL === 'true' ||
         host.includes('aivencloud.com');
 
       global._mysqlPool = mysql.createPool({
         host,
-        port: process.env.MYSQL_PORT ? parseInt(process.env.MYSQL_PORT, 10) : 3306,
-        user: process.env.MYSQL_USER || 'valhala_user',
-        password: process.env.MYSQL_PASSWORD || 'valhala_pass',
-        database: process.env.MYSQL_DATABASE || 'valhala_games',
+        port: portStr ? parseInt(portStr, 10) : 3306,
+        user: process.env.MYSQL_USER || process.env.MYSQLUSER || 'valhala_user',
+        password: process.env.MYSQL_PASSWORD || process.env.MYSQLPASSWORD || process.env.MYSQL_ROOT_PASSWORD || 'valhala_pass',
+        database: process.env.MYSQL_DATABASE || process.env.MYSQLDATABASE || 'valhala_games',
         ssl: useSsl ? { rejectUnauthorized: false } : undefined,
         waitForConnections: true,
         connectionLimit: 10,
