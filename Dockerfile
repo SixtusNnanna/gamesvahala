@@ -2,9 +2,9 @@ FROM node:22-slim
 
 WORKDIR /app
 
-# Copy package manifests and install dependencies
+# Copy package manifests and install all dependencies (including build tools)
 COPY package.json package-lock.json* ./
-RUN npm install
+RUN npm install --include=dev
 
 # Copy application source
 COPY . .

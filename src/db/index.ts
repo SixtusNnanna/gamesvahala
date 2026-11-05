@@ -11,24 +11,40 @@ declare global {
 
 export const createPool = () => {
   if (!global._mysqlPool) {
-    const connectionUri = process.env.DATABASE_URL || process.env.MYSQL_URL;
+    const connectionUri = process.env.DATABASE_URL || process.env.MYSQL_URL || process.env.MYSQL_PUBLIC_URL;
 
     if (connectionUri) {
+      const parsed = new URL(connectionUri);
+      const useSsl =
+        process.env.MYSQL_SSL === 'true' ||
+        parsed.searchParams.has('ssl-mode') ||
+        parsed.searchParams.has('ssl') ||
+        parsed.hostname.includes('aivencloud.com');
+
       global._mysqlPool = mysql.createPool({
-        uri: connectionUri,
-        ssl: process.env.MYSQL_SSL === 'true' ? { rejectUnauthorized: false } : undefined,
+        host: parsed.hostname,
+        port: parsed.port ? parseInt(parsed.port, 10) : 3306,
+        user: decodeURIComponent(parsed.username),
+        password: decodeURIComponent(parsed.password),
+        database: parsed.pathname.replace(/^\//, ''),
+        ssl: useSsl ? { rejectUnauthorized: false } : undefined,
         waitForConnections: true,
         connectionLimit: 10,
         queueLimit: 0,
       });
     } else {
+      const host = process.env.MYSQL_HOST || '127.0.0.1';
+      const useSsl =
+        process.env.MYSQL_SSL === 'true' ||
+        host.includes('aivencloud.com');
+
       global._mysqlPool = mysql.createPool({
-        host: process.env.MYSQL_HOST || '127.0.0.1',
+        host,
         port: process.env.MYSQL_PORT ? parseInt(process.env.MYSQL_PORT, 10) : 3306,
         user: process.env.MYSQL_USER || 'valhala_user',
         password: process.env.MYSQL_PASSWORD || 'valhala_pass',
         database: process.env.MYSQL_DATABASE || 'valhala_games',
-        ssl: process.env.MYSQL_SSL === 'true' ? { rejectUnauthorized: false } : undefined,
+        ssl: useSsl ? { rejectUnauthorized: false } : undefined,
         waitForConnections: true,
         connectionLimit: 10,
         queueLimit: 0,

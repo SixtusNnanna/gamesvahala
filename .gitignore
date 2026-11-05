@@ -3,6 +3,8 @@
 .env
 .env.*
 !.env.example
+node_modules/
+*.sql
 
 # Python
 __pycache__/

@@ -15,7 +15,7 @@ export function hashPasswordArgon2(password: string): string {
   const parallelism = 4;
   const tagLength = 32;
 
-  const derived = crypto.argon2Sync('argon2id', {
+  const derived: Buffer = (crypto as any).argon2Sync('argon2id', {
     message: password,
     nonce: salt,
     parallelism,
@@ -65,7 +65,7 @@ export async function verifyPassword(password: string, storedHash: string): Prom
       const salt = Buffer.from(parts[4], 'base64');
       const expectedHash = Buffer.from(parts[5], 'base64');
 
-      const derived = crypto.argon2Sync(variant, {
+      const derived: Buffer = (crypto as any).argon2Sync(variant, {
         message: password,
         nonce: salt,
         parallelism,
