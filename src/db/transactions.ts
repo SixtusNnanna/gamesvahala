@@ -88,6 +88,39 @@ export async function getTransactionsWithTotal(filter: TransactionFilterParams =
   }
 }
 
+export async function getRecentTransactions(limit = 5) {
+  try {
+    const records = await db
+      .select({
+        id: transactions.id,
+        gameId: transactions.gameId,
+        amount: transactions.amount,
+        paymentMode: transactions.paymentMode,
+        createdAt: transactions.createdAt,
+        gameName: games.name,
+      })
+      .from(transactions)
+      .innerJoin(games, eq(transactions.gameId, games.id))
+      .orderBy(desc(transactions.createdAt))
+      .limit(limit);
+
+    return records.map(r => ({
+      id: String(r.id),
+      gameId: String(r.gameId),
+      amount: Number(r.amount),
+      paymentMode: r.paymentMode,
+      createdAt: r.createdAt ? r.createdAt.toISOString() : new Date().toISOString(),
+      game: {
+        id: String(r.gameId),
+        name: r.gameName,
+      },
+    }));
+  } catch (error) {
+    console.error('Failed to get recent transactions from MySQL:', error);
+    throw new Error('Database query failed for recent transactions.', { cause: error });
+  }
+}
+
 export async function createTransaction(
   gameId: string,
   amount: number,

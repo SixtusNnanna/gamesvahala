@@ -108,11 +108,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, [token, currentUser]);
 
-  // Fetch transactions from MySQL (admin only)
+  // Fetch recent transactions from MySQL (accessible to both staff and admin for the terminal)
   const refreshTransactions = useCallback(async () => {
-    if (!token || currentUser?.role !== 'admin') return;
+    if (!token) return;
     try {
-      const res = await fetch('/api/transactions', {
+      const endpoint = currentUser?.role === 'admin' ? '/api/transactions' : '/api/transactions/recent';
+      const res = await fetch(endpoint, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {

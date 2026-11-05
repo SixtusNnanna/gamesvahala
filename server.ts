@@ -5,7 +5,7 @@ import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import jwt from 'jsonwebtoken';
 import { getGames, createGame, updateGameStatus } from './src/db/games.ts';
-import { getTransactionsWithTotal, createTransaction } from './src/db/transactions.ts';
+import { getTransactionsWithTotal, getRecentTransactions, createTransaction } from './src/db/transactions.ts';
 import { authenticateUser, createUser, getStaffUsers, getUserByUsername } from './src/db/users.ts';
 import { initDatabase } from './src/db/initDb.ts';
 
@@ -193,6 +193,17 @@ async function startServer() {
     } catch (error: any) {
       console.error('API Error updating game status:', error);
       res.status(500).json({ error: error.message || 'Failed to update game status' });
+    }
+  });
+
+  // Transactions: Get latest 5 transactions for both staff and admin register terminals
+  app.get('/api/transactions/recent', authenticateToken, async (_req: AuthRequest, res) => {
+    try {
+      const recent = await getRecentTransactions(5);
+      res.json({ transactions: recent });
+    } catch (error: any) {
+      console.error('API Error fetching recent transactions:', error);
+      res.status(500).json({ error: error.message || 'Failed to fetch recent transactions' });
     }
   });
 
