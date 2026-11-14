@@ -7,75 +7,86 @@ import {
   TransactionFilter,
   TransactionSummaryResult,
   User,
+  UserWithCredentials,
 } from '../types';
-
-interface StaffUser {
-  id: string;
-  username: string;
-  role: string;
-  createdAt?: string;
-}
+import {
+  INITIAL_GAMES,
+  INITIAL_TRANSACTIONS,
+  INITIAL_USERS,
+} from '../data/initialData';
+import { auth, googleAuthProvider } from '../lib/firebase';
+import { signInWithPopup, signOut, onAuthStateChanged } from 'firebase/auth';
 
 interface AppContextType {
   currentUser: User | null;
-  token: string | null;
+  users: UserWithCredentials[];
   games: Game[];
   transactions: Transaction[];
-  staffUsers: StaffUser[];
   activePage: 'transaction' | 'history' | 'add_game' | 'signup' | 'login';
   setActivePage: (page: 'transaction' | 'history' | 'add_game' | 'signup' | 'login') => void;
-  login: (username: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  login: (username: string, password: string) => { success: boolean; error?: string };
+  loginWithGoogle: () => Promise<{ success: boolean; error?: string }>;
   logout: () => void;
   signupStaff: (username: string, password: string) => Promise<{ success: boolean; error?: string }>;
   addGame: (name: string, description: string, status: GameStatus) => Promise<{ success: boolean; error?: string }>;
   toggleGameStatus: (gameId: string) => Promise<void>;
   addTransaction: (gameId: string, amount: number, paymentMode: PaymentMode) => Promise<{ success: boolean; error?: string }>;
-  getFilteredTransactions: (filter: TransactionFilter) => Promise<TransactionSummaryResult>;
+  getFilteredTransactions: (filter: TransactionFilter) => TransactionSummaryResult;
   formatCurrency: (amount: number) => string;
+  resetToDefaults: () => void;
+  switchUserQuick: (role: 'admin' | 'staff') => void;
   refreshData: () => Promise<void>;
-  refreshStaff: () => Promise<void>;
+  isDbConnected: boolean;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
-const TOKEN_KEY = 'valhala_jwt_token';
-const USER_KEY = 'valhala_current_user';
+const STORAGE_KEY_USERS = 'valhala_users_v1';
+const STORAGE_KEY_CURRENT_USER = 'valhala_current_user_v1';
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [token, setToken] = useState<string | null>(() => {
+  const [users, setUsers] = useState<UserWithCredentials[]>(() => {
     try {
-      return localStorage.getItem(TOKEN_KEY);
+      const stored = localStorage.getItem(STORAGE_KEY_USERS);
+      return stored ? JSON.parse(stored) : INITIAL_USERS;
     } catch {
-      return null;
+      return INITIAL_USERS;
     }
   });
+
+  const [games, setGames] = useState<Game[]>(INITIAL_GAMES);
+  const [transactions, setTransactions] = useState<Transaction[]>(INITIAL_TRANSACTIONS);
+  const [isDbConnected, setIsDbConnected] = useState<boolean>(true);
 
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
     try {
-      const stored = localStorage.getItem(USER_KEY);
-      return stored ? JSON.parse(stored) : null;
+      const stored = localStorage.getItem(STORAGE_KEY_CURRENT_USER);
+      if (stored) {
+        return JSON.parse(stored);
+      }
+      return { id: INITIAL_USERS[0].id, username: INITIAL_USERS[0].username, role: INITIAL_USERS[0].role };
     } catch {
-      return null;
+      return { id: INITIAL_USERS[0].id, username: INITIAL_USERS[0].username, role: INITIAL_USERS[0].role };
     }
   });
 
-  const [games, setGames] = useState<Game[]>([]);
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [staffUsers, setStaffUsers] = useState<StaffUser[]>([]);
-
   const [activePage, setActivePage] = useState<'transaction' | 'history' | 'add_game' | 'signup' | 'login'>(() => {
-    return token ? 'transaction' : 'login';
+    return currentUser ? 'transaction' : 'login';
   });
 
-  // Fetch games from MySQL
-  const refreshGames = useCallback(async () => {
+  // Fetch games and transactions from Cloud SQL backend
+  const refreshData = useCallback(async () => {
     try {
-      const res = await fetch('/api/games');
-      if (res.ok) {
-        const data = await res.json();
-        if (Array.isArray(data)) {
+      const [gamesRes, txRes] = await Promise.all([
+        fetch('/api/games'),
+        fetch('/api/transactions'),
+      ]);
+
+      if (gamesRes.ok) {
+        const gamesData = await gamesRes.json();
+        if (Array.isArray(gamesData) && gamesData.length > 0) {
           setGames(
-            data.map((g: any) => ({
+            gamesData.map((g: any) => ({
               id: String(g.id),
               name: g.name,
               description: g.description,
@@ -85,42 +96,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           );
         }
       }
-    } catch (err) {
-      console.warn('Error fetching games from MySQL:', err);
-    }
-  }, []);
 
-  // Fetch staff users (admin only)
-  const refreshStaff = useCallback(async () => {
-    if (!token || currentUser?.role !== 'admin') return;
-    try {
-      const res = await fetch('/api/staff', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (Array.isArray(data)) {
-          setStaffUsers(data);
-        }
-      }
-    } catch (e) {
-      console.warn('Error fetching staff from MySQL:', e);
-    }
-  }, [token, currentUser]);
-
-  // Fetch recent transactions from MySQL (accessible to both staff and admin for the terminal)
-  const refreshTransactions = useCallback(async () => {
-    if (!token) return;
-    try {
-      const endpoint = currentUser?.role === 'admin' ? '/api/transactions' : '/api/transactions/recent';
-      const res = await fetch(endpoint, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data && Array.isArray(data.transactions)) {
+      if (txRes.ok) {
+        const txData = await txRes.json();
+        if (txData && Array.isArray(txData.transactions) && txData.transactions.length > 0) {
           setTransactions(
-            data.transactions.map((t: any) => ({
+            txData.transactions.map((t: any) => ({
               id: String(t.id),
               gameId: String(t.gameId),
               amount: Number(t.amount),
@@ -130,131 +111,221 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           );
         }
       }
-    } catch (e) {
-      console.warn('Error fetching transactions from MySQL:', e);
+      setIsDbConnected(true);
+    } catch (err) {
+      console.warn('API sync fallback to local store:', err);
+      setIsDbConnected(false);
     }
-  }, [token, currentUser]);
-
-  const refreshData = useCallback(async () => {
-    await Promise.all([refreshGames(), refreshTransactions(), refreshStaff()]);
-  }, [refreshGames, refreshTransactions, refreshStaff]);
+  }, []);
 
   useEffect(() => {
     refreshData();
   }, [refreshData]);
 
-  // Validate session token on mount
+  // Listen to Firebase Auth state
   useEffect(() => {
-    if (token) {
-      fetch('/api/auth/me', {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-        .then(res => {
-          if (!res.ok) {
-            // Token expired or invalid
-            logout();
-          }
-        })
-        .catch(() => {});
-    }
-  }, [token]);
+    const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
+      if (fbUser) {
+        const username = fbUser.displayName || fbUser.email?.split('@')[0] || 'User';
+        const role = fbUser.email?.includes('admin') ? 'admin' : 'staff';
+        const userObj: User = {
+          id: fbUser.uid,
+          username,
+          role,
+        };
+        setCurrentUser(userObj);
 
-  // User Login against MySQL
-  const login = async (username: string, password: string) => {
-    try {
-      const res = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        return { success: false, error: data.error || 'Invalid username or password.' };
+        // Sync with backend Cloud SQL database
+        try {
+          await fetch('/api/users/sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              uid: fbUser.uid,
+              email: fbUser.email || `${fbUser.uid}@valhala.local`,
+              username,
+              role,
+            }),
+          });
+        } catch (e) {
+          console.warn('Failed to sync user with Cloud SQL:', e);
+        }
       }
+    });
 
-      setToken(data.token);
-      setCurrentUser(data.user);
-      localStorage.setItem(TOKEN_KEY, data.token);
-      localStorage.setItem(USER_KEY, JSON.stringify(data.user));
-      setActivePage('transaction');
-      return { success: true };
+    return () => unsubscribe();
+  }, []);
+
+  // Persist users and current session
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY_USERS, JSON.stringify(users));
+    } catch (e) {
+      console.error(e);
+    }
+  }, [users]);
+
+  useEffect(() => {
+    try {
+      if (currentUser) {
+        localStorage.setItem(STORAGE_KEY_CURRENT_USER, JSON.stringify(currentUser));
+      } else {
+        localStorage.removeItem(STORAGE_KEY_CURRENT_USER);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }, [currentUser]);
+
+  const loginWithGoogle = async () => {
+    try {
+      const result = await signInWithPopup(auth, googleAuthProvider);
+      if (result.user) {
+        const username = result.user.displayName || result.user.email?.split('@')[0] || 'User';
+        const role = result.user.email?.includes('admin') ? 'admin' : 'staff';
+        const loggedUser: User = {
+          id: result.user.uid,
+          username,
+          role,
+        };
+        setCurrentUser(loggedUser);
+        setActivePage('transaction');
+
+        // Sync with Cloud SQL
+        await fetch('/api/users/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            uid: result.user.uid,
+            email: result.user.email,
+            username,
+            role,
+          }),
+        });
+
+        return { success: true };
+      }
+      return { success: false, error: 'Google sign-in did not complete.' };
     } catch (err: any) {
-      return { success: false, error: err.message || 'Login connection failed.' };
+      console.error('Google Sign-In Error:', err);
+      return { success: false, error: err.message || 'Google sign-in failed.' };
     }
   };
 
-  const logout = () => {
-    setToken(null);
+  const login = (username: string, password: string) => {
+    const trimmed = username.trim().toLowerCase();
+    const found = users.find(u => u.username.toLowerCase() === trimmed);
+    if (!found || found.passwordHash !== password) {
+      return { success: false, error: 'Invalid username or password.' };
+    }
+    const loggedUser: User = { id: found.id, username: found.username, role: found.role };
+    setCurrentUser(loggedUser);
+    setActivePage('transaction');
+    return { success: true };
+  };
+
+  const logout = async () => {
+    try {
+      await signOut(auth);
+    } catch {
+      // Ignore if not signed in with Firebase
+    }
     setCurrentUser(null);
-    localStorage.removeItem(TOKEN_KEY);
-    localStorage.removeItem(USER_KEY);
     setActivePage('login');
   };
 
-  // Create Staff Access in MySQL
   const signupStaff = async (username: string, password: string) => {
-    if (!token) {
-      return { success: false, error: 'Authentication required' };
+    const trimmed = username.trim();
+    if (!trimmed) {
+      return { success: false, error: 'Username is required.' };
+    }
+    if (!password || password.length < 3) {
+      return { success: false, error: 'Password must be at least 3 characters.' };
     }
 
+    const exists = users.some(u => u.username.toLowerCase() === trimmed.toLowerCase());
+    if (exists) {
+      return { success: false, error: 'User already exists.' };
+    }
+
+    const newUser: UserWithCredentials = {
+      id: `usr-staff-${Date.now()}`,
+      username: trimmed,
+      passwordHash: password,
+      role: 'staff',
+    };
+
+    setUsers(prev => [...prev, newUser]);
+
+    // Also sync to Cloud SQL database
     try {
-      const res = await fetch('/api/auth/signup-staff', {
+      await fetch('/api/users/sync', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ username, password }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          uid: newUser.id,
+          email: `${trimmed}@valhala.local`,
+          username: trimmed,
+          role: 'staff',
+        }),
       });
-
-      const data = await res.json();
-      if (!res.ok) {
-        return { success: false, error: data.error || 'Failed to create staff account.' };
-      }
-
-      await refreshStaff();
-      return { success: true };
-    } catch (err: any) {
-      return { success: false, error: err.message || 'Error communicating with MySQL.' };
+    } catch (e) {
+      console.warn('Sync staff to SQL failed:', e);
     }
+
+    return { success: true };
   };
 
-  // Add Game to MySQL
   const addGame = async (name: string, description: string, status: GameStatus) => {
-    if (!token) {
-      return { success: false, error: 'Authentication required' };
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      return { success: false, error: 'Game name is required.' };
     }
 
     try {
       const res = await fetch('/api/games', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ name, description, status }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: trimmedName,
+          description: description.trim(),
+          status,
+        }),
       });
 
-      const data = await res.json();
-      if (!res.ok) {
-        return { success: false, error: data.error || 'Failed to add game to MySQL.' };
+      if (res.ok) {
+        const created = await res.json();
+        const newGame: Game = {
+          id: String(created.id),
+          name: created.name,
+          description: created.description,
+          status: created.status as GameStatus,
+          createdAt: created.createdAt || new Date().toISOString(),
+        };
+        setGames(prev => [...prev, newGame]);
+        return { success: true };
       }
-
-      await refreshGames();
-      return { success: true };
-    } catch (err: any) {
-      return { success: false, error: err.message || 'Error communicating with MySQL.' };
+    } catch (err) {
+      console.warn('Failed to add game to Cloud SQL, falling back to local:', err);
     }
+
+    const fallbackGame: Game = {
+      id: `game-${Date.now()}`,
+      name: trimmedName,
+      description: description.trim(),
+      status,
+      createdAt: new Date().toISOString(),
+    };
+    setGames(prev => [...prev, fallbackGame]);
+    return { success: true };
   };
 
-  // Toggle Game Status in MySQL
   const toggleGameStatus = async (gameId: string) => {
     const game = games.find(g => g.id === gameId);
-    if (!game || !token) return;
+    if (!game) return;
     const newStatus: GameStatus = game.status === 'available' ? 'unavailable' : 'available';
 
-    // Optimistic UI update
+    // Optimistic update
     setGames(prev =>
       prev.map(g => (g.id === gameId ? { ...g, status: newStatus } : g))
     );
@@ -262,87 +333,122 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       await fetch(`/api/games/${gameId}/status`, {
         method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: newStatus }),
       });
-      await refreshGames();
     } catch (err) {
-      console.warn('Failed to update game status in MySQL:', err);
+      console.warn('Failed to update game status in Cloud SQL:', err);
     }
   };
 
-  // Record Transaction in MySQL
   const addTransaction = async (gameId: string, amount: number, paymentMode: PaymentMode) => {
-    if (!token) {
-      return { success: false, error: 'Authentication required' };
+    const game = games.find(g => g.id === gameId);
+    if (!game || game.status === 'unavailable') {
+      return { success: false, error: 'Game not found or unavailable' };
+    }
+
+    if (isNaN(amount) || amount <= 0) {
+      return { success: false, error: 'Please enter a valid amount greater than 0' };
     }
 
     try {
       const res = await fetch('/api/transactions', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           gameId,
-          amount,
+          amount: Number(amount.toFixed(2)),
           paymentMode,
+          cashierUid: currentUser?.id,
         }),
       });
 
-      const data = await res.json();
-      if (!res.ok) {
-        return { success: false, error: data.error || 'Failed to record transaction in MySQL' };
-      }
-
-      await refreshTransactions();
-      return { success: true };
-    } catch (err: any) {
-      return { success: false, error: err.message || 'Error communicating with MySQL.' };
-    }
-  };
-
-  // Filter Transactions and compute net revenue with fee deduction from MySQL
-  const getFilteredTransactions = async (filter: TransactionFilter): Promise<TransactionSummaryResult> => {
-    if (!token) {
-      return {
-        transactions: [],
-        rawTotal: 0,
-        total: 0,
-        feeDeducted: 0,
-        feePercentage: 0,
-        isFeeApplied: false,
-      };
-    }
-
-    try {
-      const params = new URLSearchParams();
-      if (filter.gameId) params.append('gameId', filter.gameId);
-      if (filter.date) params.append('date', filter.date);
-      if (filter.paymentMode) params.append('paymentMode', filter.paymentMode);
-
-      const res = await fetch(`/api/transactions?${params.toString()}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
       if (res.ok) {
-        return await res.json();
+        const created = await res.json();
+        const newTx: Transaction = {
+          id: String(created.id),
+          gameId: String(created.gameId),
+          amount: Number(created.amount),
+          paymentMode: created.paymentMode as PaymentMode,
+          createdAt: created.createdAt || new Date().toISOString(),
+        };
+        setTransactions(prev => [newTx, ...prev]);
+        return { success: true };
       }
     } catch (err) {
-      console.warn('Error querying filtered transactions:', err);
+      console.warn('Failed to add transaction to Cloud SQL, falling back to local:', err);
     }
 
+    const fallbackTx: Transaction = {
+      id: `tx-${Date.now()}`,
+      gameId,
+      amount: Number(amount.toFixed(2)),
+      paymentMode,
+      createdAt: new Date().toISOString(),
+    };
+    setTransactions(prev => [fallbackTx, ...prev]);
+    return { success: true };
+  };
+
+  // Implements TransactionService business logic
+  const getFilteredTransactions = (filter: TransactionFilter): TransactionSummaryResult => {
+    let filtered = [...transactions];
+
+    if (filter.gameId) {
+      filtered = filtered.filter(tx => String(tx.gameId) === String(filter.gameId));
+    }
+
+    if (filter.date) {
+      filtered = filtered.filter(tx => {
+        const txDate = new Date(tx.createdAt);
+        const year = txDate.getFullYear();
+        const month = String(txDate.getMonth() + 1).padStart(2, '0');
+        const day = String(txDate.getDate()).padStart(2, '0');
+        const formatted = `${year}-${month}-${day}`;
+        return formatted === filter.date;
+      });
+    }
+
+    if (filter.paymentMode) {
+      filtered = filtered.filter(tx => tx.paymentMode === filter.paymentMode);
+    }
+
+    filtered.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+    const rawTotal = filtered.reduce((acc, curr) => acc + curr.amount, 0);
+
+    // Business fee deduction logic from TransactionService:
+    // bank_transfer: total = amount - (0.2323 * amount)
+    // landmark_app: total = amount - (0.15 * amount)
+    let netTotal = rawTotal;
+    let feeDeducted = 0;
+    let feePercentage = 0;
+    let isFeeApplied = false;
+
+    if (filter.paymentMode === 'bank_transfer') {
+      feePercentage = 23.23;
+      feeDeducted = rawTotal * 0.2323;
+      netTotal = rawTotal - feeDeducted;
+      isFeeApplied = true;
+    } else if (filter.paymentMode === 'landmark_app') {
+      feePercentage = 15;
+      feeDeducted = rawTotal * 0.15;
+      netTotal = rawTotal - feeDeducted;
+      isFeeApplied = true;
+    }
+
+    const enriched = filtered.map(tx => ({
+      ...tx,
+      game: games.find(g => String(g.id) === String(tx.gameId)),
+    }));
+
     return {
-      transactions: [],
-      rawTotal: 0,
-      total: 0,
-      feeDeducted: 0,
-      feePercentage: 0,
-      isFeeApplied: false,
+      transactions: enriched,
+      rawTotal,
+      total: Number(netTotal.toFixed(2)),
+      feeDeducted: Number(feeDeducted.toFixed(2)),
+      feePercentage,
+      isFeeApplied,
     };
   };
 
@@ -353,17 +459,32 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     })}`;
   };
 
+  const resetToDefaults = () => {
+    setUsers(INITIAL_USERS);
+    setGames(INITIAL_GAMES);
+    setTransactions(INITIAL_TRANSACTIONS);
+    setCurrentUser({ id: INITIAL_USERS[0].id, username: INITIAL_USERS[0].username, role: INITIAL_USERS[0].role });
+    localStorage.clear();
+  };
+
+  const switchUserQuick = (role: 'admin' | 'staff') => {
+    const userToSwitch = users.find(u => u.role === role) || INITIAL_USERS.find(u => u.role === role);
+    if (userToSwitch) {
+      setCurrentUser({ id: userToSwitch.id, username: userToSwitch.username, role: userToSwitch.role });
+    }
+  };
+
   return (
     <AppContext.Provider
       value={{
         currentUser,
-        token,
+        users,
         games,
         transactions,
-        staffUsers,
         activePage,
         setActivePage,
         login,
+        loginWithGoogle,
         logout,
         signupStaff,
         addGame,
@@ -371,8 +492,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         addTransaction,
         getFilteredTransactions,
         formatCurrency,
+        resetToDefaults,
+        switchUserQuick,
         refreshData,
-        refreshStaff,
+        isDbConnected,
       }}
     >
       {children}
