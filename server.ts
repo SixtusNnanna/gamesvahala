@@ -5,7 +5,7 @@ import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import jwt from 'jsonwebtoken';
 import { getGames, createGame, updateGameStatus } from './src/db/games.ts';
-import { getTransactionsWithTotal, getRecentTransactions, createTransaction } from './src/db/transactions.ts';
+import { getTransactionsWithTotal, getRecentTransactions, createTransaction, DateRangeValidationError } from './src/db/transactions.ts';
 import { authenticateUser, createUser, getStaffUsers, getUserByUsername } from './src/db/users.ts';
 import { initDatabase } from './src/db/initDb.ts';
 
@@ -212,26 +212,41 @@ async function startServer() {
     try {
       const gameIdQuery = req.query.gameId;
       const dateQuery = req.query.date;
+      const startDateQuery = req.query.startDate;
+      const endDateQuery = req.query.endDate;
       const paymentModeQuery = req.query.paymentMode;
 
       const gameIdParam = typeof gameIdQuery === 'string' && gameIdQuery.trim() ? gameIdQuery.trim() : undefined;
       const dateParam = typeof dateQuery === 'string' && dateQuery.trim() ? dateQuery.trim() : undefined;
-      const paymentModeParam =
-        typeof paymentModeQuery === 'string' &&
-        (paymentModeQuery === 'bank_transfer' ||
-          paymentModeQuery === 'landmark_app' ||
-          paymentModeQuery === 'upside_down_house')
-          ? paymentModeQuery
-          : undefined;
+      const startDateParam = typeof startDateQuery === 'string' && startDateQuery.trim() ? startDateQuery.trim() : undefined;
+      const endDateParam = typeof endDateQuery === 'string' && endDateQuery.trim() ? endDateQuery.trim() : undefined;
+
+      let paymentModeParam: 'bank_transfer' | 'landmark_app' | 'upside_down_house' | 'front_desk' | undefined;
+      if (typeof paymentModeQuery === 'string') {
+        const normalized = paymentModeQuery.trim().toLowerCase().replace(/[.\s]+/g, '_');
+        if (
+          normalized === 'bank_transfer' ||
+          normalized === 'landmark_app' ||
+          normalized === 'upside_down_house' ||
+          normalized === 'front_desk'
+        ) {
+          paymentModeParam = normalized;
+        }
+      }
 
       const result = await getTransactionsWithTotal({
         gameId: gameIdParam,
         date: dateParam,
+        startDate: startDateParam,
+        endDate: endDateParam,
         paymentMode: paymentModeParam,
       });
 
       res.json(result);
     } catch (error: any) {
+      if (error instanceof DateRangeValidationError) {
+        return res.status(400).json({ error: error.message });
+      }
       console.error('API Error fetching transactions:', error);
       res.status(500).json({ error: error.message || 'Failed to fetch transactions' });
     }
@@ -243,12 +258,19 @@ async function startServer() {
       const { gameId, amount, paymentMode } = req.body;
       const trimmedGameId = gameId ? String(gameId).trim() : '';
       const parsedAmount = parseFloat(String(amount));
-      const validMode =
-        paymentMode === 'bank_transfer' ||
-        paymentMode === 'landmark_app' ||
-        paymentMode === 'upside_down_house'
-          ? paymentMode
-          : null;
+
+      let validMode: 'bank_transfer' | 'landmark_app' | 'upside_down_house' | 'front_desk' | null = null;
+      if (typeof paymentMode === 'string') {
+        const normalized = paymentMode.trim().toLowerCase().replace(/[.\s]+/g, '_');
+        if (
+          normalized === 'bank_transfer' ||
+          normalized === 'landmark_app' ||
+          normalized === 'upside_down_house' ||
+          normalized === 'front_desk'
+        ) {
+          validMode = normalized;
+        }
+      }
 
       if (!trimmedGameId || isNaN(parsedAmount) || parsedAmount <= 0 || !validMode) {
         return res.status(400).json({ error: 'Invalid transaction payload' });

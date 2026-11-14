@@ -1,42 +1,87 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
-import { PAYMENT_MODES, PaymentMode, TransactionFilter } from '../types';
+import { PAYMENT_MODES, PaymentMode, TransactionFilter, TransactionSummaryResult } from '../types';
+
+function addOneYearStr(dateStr: string): string {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dt = new Date(Date.UTC(y + 1, m - 1, d));
+  if (m === 2 && d === 29 && dt.getUTCMonth() !== 1) {
+    return `${y + 1}-02-28`;
+  }
+  const yyyy = dt.getUTCFullYear();
+  const mm = String(dt.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(dt.getUTCDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function subtractOneYearStr(dateStr: string): string {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dt = new Date(Date.UTC(y - 1, m - 1, d));
+  if (m === 2 && d === 29 && dt.getUTCMonth() !== 1) {
+    return `${y - 1}-02-28`;
+  }
+  const yyyy = dt.getUTCFullYear();
+  const mm = String(dt.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(dt.getUTCDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
 
 export const TransactionsHistoryPage: React.FC = () => {
   const { games, getFilteredTransactions, formatCurrency } = useApp();
 
   const [filterGameId, setFilterGameId] = useState<string>('');
-  const [filterDate, setFilterDate] = useState<string>('');
+  const [filterStartDate, setFilterStartDate] = useState<string>('');
+  const [filterEndDate, setFilterEndDate] = useState<string>('');
   const [filterPaymentMode, setFilterPaymentMode] = useState<PaymentMode | ''>('');
+  const [dateError, setDateError] = useState<string | null>(null);
 
   // Applied filter state
   const [appliedFilters, setAppliedFilters] = useState<TransactionFilter>({
     gameId: '',
-    date: '',
+    startDate: '',
+    endDate: '',
     paymentMode: '',
   });
 
   const handleApplyFilters = (e: React.FormEvent) => {
     e.preventDefault();
+    setDateError(null);
+
+    if (filterStartDate && filterEndDate) {
+      if (filterStartDate > filterEndDate) {
+        setDateError('Start date cannot be after end date.');
+        return;
+      }
+      const maxEndDate = addOneYearStr(filterStartDate);
+      if (filterEndDate > maxEndDate) {
+        setDateError('Date range cannot exceed 1 year.');
+        return;
+      }
+    }
+
     setAppliedFilters({
       gameId: filterGameId,
-      date: filterDate,
+      startDate: filterStartDate,
+      endDate: filterEndDate,
       paymentMode: filterPaymentMode,
     });
   };
 
   const handleClearFilters = () => {
     setFilterGameId('');
-    setFilterDate('');
+    setFilterStartDate('');
+    setFilterEndDate('');
     setFilterPaymentMode('');
+    setDateError(null);
     setAppliedFilters({
       gameId: '',
-      date: '',
+      startDate: '',
+      endDate: '',
       paymentMode: '',
     });
   };
 
-  const [summary, setSummary] = useState<any>({
+  const [summary, setSummary] = useState<TransactionSummaryResult>({
     transactions: [],
     rawTotal: 0,
     total: 0,
@@ -50,6 +95,9 @@ export const TransactionsHistoryPage: React.FC = () => {
     getFilteredTransactions(appliedFilters).then(res => {
       if (isMounted && res) {
         setSummary(res);
+        if (res.error) {
+          setDateError(res.error);
+        }
       }
     });
     return () => {
@@ -74,9 +122,14 @@ export const TransactionsHistoryPage: React.FC = () => {
   };
 
   // Helper for Payment Mode Label
-  const getPaymentModeLabel = (mode: PaymentMode) => {
-    return PAYMENT_MODES.find(m => m.value === mode)?.label || mode.replace('_', ' ');
+  const getPaymentModeLabel = (mode: PaymentMode | string) => {
+    return PAYMENT_MODES.find(m => m.value === mode)?.label || mode.replace(/_/g, ' ');
   };
+
+  const startDateMin = filterEndDate ? subtractOneYearStr(filterEndDate) : undefined;
+  const startDateMax = filterEndDate || undefined;
+  const endDateMin = filterStartDate || undefined;
+  const endDateMax = filterStartDate ? addOneYearStr(filterStartDate) : undefined;
 
   return (
     <div className="max-w-[1100px] mx-auto py-6">
@@ -91,77 +144,112 @@ export const TransactionsHistoryPage: React.FC = () => {
       {/* Filter Form Card */}
       <form
         onSubmit={handleApplyFilters}
-        className="bg-white p-[22px] rounded-[10px] mb-[22px] shadow-[0_3px_12px_rgba(0,0,0,0.05)] grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 items-end"
+        className="bg-white p-[22px] rounded-[10px] mb-[22px] shadow-[0_3px_12px_rgba(0,0,0,0.05)]"
       >
-        <div>
-          <label htmlFor="game_id" className="block mb-2 font-bold text-sm text-[#222]">
-            Game
-          </label>
-          <select
-            id="game_id"
-            name="game_id"
-            value={filterGameId}
-            onChange={e => setFilterGameId(e.target.value)}
-            className="w-full p-[11px] rounded-[6px] border border-[#ccc] text-sm bg-white outline-none focus:border-[#2e6b63]"
-          >
-            <option value="">All games</option>
-            {games.map(game => (
-              <option key={game.id} value={game.id}>
-                {game.name}
-              </option>
-            ))}
-          </select>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 items-end">
+          <div>
+            <label htmlFor="game_id" className="block mb-2 font-bold text-sm text-[#222]">
+              Game
+            </label>
+            <select
+              id="game_id"
+              name="game_id"
+              value={filterGameId}
+              onChange={e => setFilterGameId(e.target.value)}
+              className="w-full p-[11px] rounded-[6px] border border-[#ccc] text-sm bg-white outline-none focus:border-[#2e6b63]"
+            >
+              <option value="">All games</option>
+              {games.map(game => (
+                <option key={game.id} value={game.id}>
+                  {game.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label htmlFor="start_date" className="block mb-2 font-bold text-sm text-[#222]">
+              From Date <span className="text-xs font-normal text-gray-400">(max 1 yr)</span>
+            </label>
+            <input
+              type="date"
+              id="start_date"
+              name="start_date"
+              value={filterStartDate}
+              min={startDateMin}
+              max={startDateMax}
+              onChange={e => {
+                setDateError(null);
+                setFilterStartDate(e.target.value);
+              }}
+              className="w-full p-[11px] rounded-[6px] border border-[#ccc] text-sm bg-white outline-none focus:border-[#2e6b63]"
+            />
+          </div>
+
+          <div>
+            <label htmlFor="end_date" className="block mb-2 font-bold text-sm text-[#222]">
+              To Date <span className="text-xs font-normal text-gray-400">(max 1 yr)</span>
+            </label>
+            <input
+              type="date"
+              id="end_date"
+              name="end_date"
+              value={filterEndDate}
+              min={endDateMin}
+              max={endDateMax}
+              onChange={e => {
+                setDateError(null);
+                setFilterEndDate(e.target.value);
+              }}
+              className="w-full p-[11px] rounded-[6px] border border-[#ccc] text-sm bg-white outline-none focus:border-[#2e6b63]"
+            />
+          </div>
+
+          <div>
+            <label htmlFor="payment_mode" className="block mb-2 font-bold text-sm text-[#222]">
+              Payment Mode
+            </label>
+            <select
+              id="payment_mode"
+              name="payment_mode"
+              value={filterPaymentMode}
+              onChange={e => setFilterPaymentMode(e.target.value as PaymentMode | '')}
+              className="w-full p-[11px] rounded-[6px] border border-[#ccc] text-sm bg-white outline-none focus:border-[#2e6b63]"
+            >
+              <option value="">All payment modes</option>
+              {PAYMENT_MODES.map(mode => (
+                <option key={mode.value} value={mode.value}>
+                  {mode.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex gap-2 items-center">
+            <button
+              type="submit"
+              className="flex-1 p-[11px] bg-[#2e6b63] hover:bg-[#24564f] text-white rounded-[6px] border-none font-bold text-sm cursor-pointer transition-colors text-center"
+            >
+              Apply Filters
+            </button>
+            <button
+              type="button"
+              onClick={handleClearFilters}
+              className="p-[11px] text-[#2e6b63] hover:text-[#174d46] hover:bg-[#f0f7f5] rounded-[6px] text-sm font-semibold transition-colors cursor-pointer text-center"
+            >
+              Clear
+            </button>
+          </div>
         </div>
 
-        <div>
-          <label htmlFor="transaction_date" className="block mb-2 font-bold text-sm text-[#222]">
-            Date
-          </label>
-          <input
-            type="date"
-            id="transaction_date"
-            name="transaction_date"
-            value={filterDate}
-            onChange={e => setFilterDate(e.target.value)}
-            className="w-full p-[11px] rounded-[6px] border border-[#ccc] text-sm bg-white outline-none focus:border-[#2e6b63]"
-          />
-        </div>
-
-        <div>
-          <label htmlFor="payment_mode" className="block mb-2 font-bold text-sm text-[#222]">
-            Payment Mode
-          </label>
-          <select
-            id="payment_mode"
-            name="payment_mode"
-            value={filterPaymentMode}
-            onChange={e => setFilterPaymentMode(e.target.value as PaymentMode | '')}
-            className="w-full p-[11px] rounded-[6px] border border-[#ccc] text-sm bg-white outline-none focus:border-[#2e6b63]"
+        {dateError && (
+          <div
+            role="alert"
+            className="mt-4 p-3 rounded-[6px] border border-[#f2c5c5] bg-[#fff1f1] text-[#a12b2b] text-sm font-medium"
           >
-            <option value="">All payment modes</option>
-            {PAYMENT_MODES.map(mode => (
-              <option key={mode.value} value={mode.value}>
-                {mode.label}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="flex gap-2 items-center">
-          <button
-            type="submit"
-            className="flex-1 p-[11px] bg-[#2e6b63] hover:bg-[#24564f] text-white rounded-[6px] border-none font-bold text-sm cursor-pointer transition-colors text-center"
-          >
-            Apply Filters
-          </button>
-          <button
-            type="button"
-            onClick={handleClearFilters}
-            className="p-[11px] text-[#2e6b63] hover:text-[#174d46] hover:bg-[#f0f7f5] rounded-[6px] text-sm font-semibold transition-colors cursor-pointer text-center"
-          >
-            Clear filters
-          </button>
-        </div>
+            ⚠ {dateError}
+          </div>
+        )}
       </form>
 
       {/* Summary Card */}
@@ -219,7 +307,7 @@ export const TransactionsHistoryPage: React.FC = () => {
             </thead>
             <tbody>
               {summary.transactions.length > 0 ? (
-                summary.transactions.map((tx: any) => (
+                summary.transactions.map((tx) => (
                   <tr key={tx.id} className="border-b border-[#eee] hover:bg-[#fafbfb] transition-colors">
                     <td className="p-[13px] font-medium text-gray-800">
                       {tx.game ? tx.game.name : 'Unknown Game'}

@@ -5,6 +5,7 @@
 !.env.example
 node_modules/
 *.sql
+*.rdb
 
 # Python
 __pycache__/

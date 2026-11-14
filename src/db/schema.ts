@@ -21,9 +21,7 @@ export const games = mysqlTable('games', {
 export const transactions = mysqlTable('transactions', {
   id: varchar('id', { length: 36 }).primaryKey(),
   amount: decimal('amount', { precision: 12, scale: 2 }).notNull(),
-  paymentMode: mysqlEnum('payment_mode', ['bank_transfer', 'landmark_app', 'upside_down_house'])
-    .notNull()
-    .default('bank_transfer'),
+  paymentMode: varchar('payment_mode', { length: 50 }).notNull().default('bank_transfer'),
   gameId: varchar('game_id', { length: 36 }).notNull(),
   createdAt: datetime('created_at'),
 });

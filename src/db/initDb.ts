@@ -26,7 +26,7 @@ const CREATE_TRANSACTIONS_TABLE = `
 CREATE TABLE IF NOT EXISTS \`transactions\` (
   \`id\` char(32) NOT NULL,
   \`amount\` decimal(12,2) NOT NULL,
-  \`payment_mode\` enum('bank_transfer','landmark_app','upside_down_house') NOT NULL,
+  \`payment_mode\` varchar(50) NOT NULL,
   \`game_id\` char(32) NOT NULL,
   \`created_at\` datetime DEFAULT NULL,
   PRIMARY KEY (\`id\`),
@@ -90,6 +90,12 @@ export async function initDatabase(): Promise<void> {
     await connection.query(CREATE_GAMES_TABLE);
     await connection.query(CREATE_USERS_TABLE);
     await connection.query(CREATE_TRANSACTIONS_TABLE);
+
+    try {
+      await connection.query('ALTER TABLE `transactions` MODIFY COLUMN `payment_mode` varchar(50) NOT NULL;');
+    } catch {
+      // Ignore if column already modified or not supported
+    }
 
     await connection.query(SEED_GAMES_SQL);
     await connection.query(SEED_USERS_SQL);

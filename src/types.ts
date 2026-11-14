@@ -1,4 +1,4 @@
-export type PaymentMode = 'bank_transfer' | 'landmark_app' | 'upside_down_house';
+export type PaymentMode = 'bank_transfer' | 'landmark_app' | 'upside_down_house' | 'front_desk';
 
 export type GameStatus = 'available' | 'unavailable';
 
@@ -28,6 +28,7 @@ export interface Transaction {
   amount: number;
   paymentMode: PaymentMode;
   createdAt: string;
+  cashierUsername?: string;
 }
 
 export interface TransactionWithGame extends Transaction {
@@ -36,7 +37,9 @@ export interface TransactionWithGame extends Transaction {
 
 export interface TransactionFilter {
   gameId?: string;
-  date?: string; // YYYY-MM-DD
+  date?: string; // YYYY-MM-DD (legacy / single day filter)
+  startDate?: string; // YYYY-MM-DD
+  endDate?: string; // YYYY-MM-DD
   paymentMode?: PaymentMode | '';
 }
 
@@ -47,12 +50,14 @@ export interface TransactionSummaryResult {
   feeDeducted: number;
   feePercentage: number;
   isFeeApplied: boolean;
+  error?: string;
 }
 
 export const PAYMENT_MODES: { value: PaymentMode; label: string }[] = [
   { value: 'bank_transfer', label: 'Bank Transfer' },
   { value: 'landmark_app', label: 'Landmark App' },
   { value: 'upside_down_house', label: 'Up Side Down House' },
+  { value: 'front_desk', label: 'Front. Desk' },
 ];
 
 export const GAME_STATUSES: { value: GameStatus; label: string }[] = [
