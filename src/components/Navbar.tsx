@@ -2,7 +2,7 @@ import React from 'react';
 import { useApp } from '../context/AppContext';
 
 export const Navbar: React.FC = () => {
-  const { currentUser, logout, activePage, setActivePage } = useApp();
+  const { currentUser, logout, activePage, setActivePage, switchUserQuick } = useApp();
 
   return (
     <nav className="bg-[#174d46] text-white py-4 px-[5%] flex items-center justify-between gap-5 flex-wrap shadow-md">
@@ -71,7 +71,7 @@ export const Navbar: React.FC = () => {
             </div>
           )}
 
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
             <div className="text-right hidden sm:block">
               <div className="text-xs text-[#a0c5bd] uppercase tracking-wider font-medium">
                 Signed in as
@@ -84,6 +84,32 @@ export const Navbar: React.FC = () => {
                   {currentUser.role}
                 </span>
               </div>
+            </div>
+
+            {/* Quick Role Tester Switcher */}
+            <div className="flex bg-[#0f3631] p-0.5 rounded border border-[#24564f] text-xs">
+              <button
+                title="Switch to Admin view"
+                onClick={() => switchUserQuick('admin')}
+                className={`px-2 py-1 rounded transition-colors ${
+                  currentUser.role === 'admin'
+                    ? 'bg-[#2e6b63] text-white font-bold'
+                    : 'text-[#8cb8b0] hover:text-white'
+                }`}
+              >
+                Admin
+              </button>
+              <button
+                title="Switch to Staff view"
+                onClick={() => switchUserQuick('staff')}
+                className={`px-2 py-1 rounded transition-colors ${
+                  currentUser.role === 'staff'
+                    ? 'bg-[#2e6b63] text-white font-bold'
+                    : 'text-[#8cb8b0] hover:text-white'
+                }`}
+              >
+                Staff
+              </button>
             </div>
 
             <button
